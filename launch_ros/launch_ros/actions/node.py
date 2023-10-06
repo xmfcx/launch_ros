@@ -128,6 +128,7 @@ class Node(ExecuteProcess):
             self.params_descs = None  # type: Optional[List[Tuple[str, str]]]
             self.params_global_tuples = None  # type: Optional[List[Tuple[str, str]]]
             self.params_global_files = None  # type: Optional[List[str]]
+            self.arguments = None  # type: Optional[List[str]]
 
     UNSPECIFIED_NODE_NAME = '<node_name_unspecified>'
     UNSPECIFIED_NODE_NAMESPACE = '<node_namespace_unspecified>'
@@ -568,6 +569,12 @@ class Node(ExecuteProcess):
         self.final_attributes.node_executable = perform_substitutions(
             context, normalize_to_list_of_substitutions(self.node_executable)
         )
+        if self.__arguments is not None:
+            self.final_attributes.arguments = []
+            for arg in self.__arguments:
+                self.final_attributes.arguments.append(perform_substitutions(
+                    context, normalize_to_list_of_substitutions(arg)
+                ))
         return ret
 
     @property
