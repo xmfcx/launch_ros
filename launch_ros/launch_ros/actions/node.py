@@ -113,6 +113,22 @@ class NodeActionExtension:
 class Node(ExecuteProcess):
     """Action that executes a ROS node."""
 
+    class FinalAttributes:
+        def __init__(self):
+            from typing import Optional, List, Dict, Tuple
+            self.package = None  # type: Optional[str]
+            self.node_name = None  # type: Optional[str]
+            self.node_executable = None  # type: Optional[str]
+            self.node_namespace = None  # type: Optional[str]
+            self.target_container = None  # type: Optional[str]
+            self.remap_rules = None  # type: Optional[List[Tuple[str, str]]]
+            self.remap_rules_global = None  # type: Optional[List[Tuple[str, str]]]
+            self.params_files = None  # type: Optional[List[str]]
+            self.params_dicts = None  # type: Optional[List[Dict]]
+            self.params_descs = None  # type: Optional[List[Tuple[str, str]]]
+            self.params_global_tuples = None  # type: Optional[List[Tuple[str, str]]]
+            self.params_global_files = None  # type: Optional[List[str]]
+
     UNSPECIFIED_NODE_NAME = '<node_name_unspecified>'
     UNSPECIFIED_NODE_NAMESPACE = '<node_namespace_unspecified>'
 
@@ -238,6 +254,8 @@ class Node(ExecuteProcess):
         self.__logger = launch.logging.get_logger(__name__)
 
         self.__extensions = get_extensions(self.__logger)
+
+        self.final_attributes = self.FinalAttributes()
 
     @staticmethod
     def parse_nested_parameters(params, parser):
@@ -430,14 +448,20 @@ class Node(ExecuteProcess):
         if params_container is not None:
             for param in params_container:
                 if isinstance(param, tuple):
+                    if self.final_attributes.params_global_tuples is None:
+                        self.final_attributes.params_global_tuples = []
                     name, value = param
+                    self.final_attributes.params_global_tuples.append((name, value))
                     cmd_extension = ['-p', f'{name}:={value}']
                     self.cmd.extend([normalize_to_list_of_substitutions(x) for x in cmd_extension])
                 else:
+                    if self.final_attributes.params_global_files is None:
+                        self.final_attributes.params_global_files = []
                     param_file_path = os.path.abspath(param)
                     self.__expanded_parameter_arguments.append((param_file_path, True))
                     cmd_extension = ['--params-file', f'{param_file_path}']
                     assert os.path.isfile(param_file_path)
+                    self.final_attributes.params_global_files.append(param_file_path)
                     self.cmd.extend([normalize_to_list_of_substitutions(x) for x in cmd_extension])
 
         # expand parameters too
@@ -446,13 +470,20 @@ class Node(ExecuteProcess):
             for params in evaluated_parameters:
                 is_file = False
                 if isinstance(params, dict):
+                    if self.final_attributes.params_dicts is None:
+                        self.final_attributes.params_dicts = []
+                    self.final_attributes.params_dicts.append(params)
                     param_argument = self._create_params_file_from_dict(params)
                     is_file = True
                     assert os.path.isfile(param_argument)
                 elif isinstance(params, pathlib.Path):
+                    if self.final_attributes.params_files is None:
+                        self.final_attributes.params_files = []
+                    self.final_attributes.params_files.append(str(params))
                     param_argument = str(params)
                     is_file = True
                 elif isinstance(params, Parameter):
+                    self.final_attributes.params_descs.append(params.evaluate(context))
                     param_argument = self._get_parameter_rule(params, context)
                 else:
                     raise RuntimeError('invalid normalized parameters {}'.format(repr(params)))
@@ -469,12 +500,16 @@ class Node(ExecuteProcess):
         if global_remaps or self.__remappings:
             self.__expanded_remappings = []
         if global_remaps:
-            self.__expanded_remappings.extend(global_remaps)
+            self.final_attributes.remap_rules_global = []
+            self.final_attributes.remap_rules_global.extend(global_remaps)
+            self.__expanded_remappings.extend(self.final_attributes.remap_rules_global)
         if self.__remappings:
-            self.__expanded_remappings.extend([
+            self.final_attributes.remap_rules = []
+            self.final_attributes.remap_rules.extend([
                 (perform_substitutions(context, src), perform_substitutions(context, dst))
                 for src, dst in self.__remappings
             ])
+            self.__expanded_remappings.extend(self.final_attributes.remap_rules)
         if self.__expanded_remappings:
             cmd_extension = []
             for src, dst in self.__expanded_remappings:
@@ -493,8 +528,10 @@ class Node(ExecuteProcess):
         ros_specific_arguments: Dict[str, Union[str, List[str]]] = {}
         if self.__node_name is not None:
             ros_specific_arguments['name'] = '__node:={}'.format(self.__expanded_node_name)
+            self.final_attributes.node_name = self.__expanded_node_name
         if self.__expanded_node_namespace != '':
             ros_specific_arguments['ns'] = '__ns:={}'.format(self.__expanded_node_namespace)
+            self.final_attributes.node_namespace = self.__expanded_node_namespace
 
         # Give extensions a chance to prepare for execution
         for extension in self.__extensions.values():
@@ -518,6 +555,12 @@ class Node(ExecuteProcess):
                     'launch context'.format(node_name_count, self.node_name)
                 )
 
+        self.final_attributes.package = perform_substitutions(
+            context, normalize_to_list_of_substitutions(self.node_package)
+        )
+        self.final_attributes.node_executable = perform_substitutions(
+            context, normalize_to_list_of_substitutions(self.node_executable)
+        )
         return ret
 
     @property
