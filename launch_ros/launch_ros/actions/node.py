@@ -528,10 +528,17 @@ class Node(ExecuteProcess):
         ros_specific_arguments: Dict[str, Union[str, List[str]]] = {}
         if self.__node_name is not None:
             ros_specific_arguments['name'] = '__node:={}'.format(self.__expanded_node_name)
-            self.final_attributes.node_name = self.__expanded_node_name
+            if self.__expanded_node_name == self.UNSPECIFIED_NODE_NAME:
+                self.final_attributes.node_name = ""
+            else:
+                self.final_attributes.node_name = self.__expanded_node_name
+
         if self.__expanded_node_namespace != '':
             ros_specific_arguments['ns'] = '__ns:={}'.format(self.__expanded_node_namespace)
-            self.final_attributes.node_namespace = self.__expanded_node_namespace
+            if self.__expanded_node_namespace == self.UNSPECIFIED_NODE_NAMESPACE:
+                self.final_attributes.node_namespace = ""
+            else:
+                self.final_attributes.node_namespace = self.__expanded_node_namespace
 
         # Give extensions a chance to prepare for execution
         for extension in self.__extensions.values():
