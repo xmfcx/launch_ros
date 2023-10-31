@@ -36,6 +36,21 @@ from launch_ros.utilities import normalize_remap_rules
 class ComposableNode:
     """Describes a ROS node that can be loaded into a container with other nodes."""
 
+    class FinalAttributes:
+        def __init__(self):
+            from typing import Optional, List, Dict, Tuple
+            self.package = None  # type: Optional[str]
+            self.node_name = None  # type: Optional[str]
+            self.node_plugin = None  # type: Optional[str]
+            self.node_namespace = None  # type: Optional[str]
+            self.target_container = None  # type: Optional[str]
+            self.remap_rules = None  # type: Optional[List[Tuple[str, str]]]
+            self.remap_rules_global = None  # type: Optional[List[Tuple[str, str]]]
+            self.params_files = None  # type: Optional[List[str]]
+            self.params_dicts = None  # type: Optional[List[Dict]]
+            self.params_descs = None  # type: Optional[List[Tuple[str, str]]]
+
+
     def __init__(
         self, *,
         package: SomeSubstitutionsType,
@@ -83,6 +98,8 @@ class ComposableNode:
             self.__extra_arguments = normalize_parameters(extra_arguments)
 
         self.__condition = condition
+
+        self.final_attributes = self.FinalAttributes()
 
     @classmethod
     def parse(cls, parser: Parser, entity: Entity):

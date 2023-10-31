@@ -234,6 +234,9 @@ class LoadComposableNodes(Action):
             for node_description in self.__composable_node_descriptions
         ]
 
+        for node_description in self.__composable_node_descriptions:
+            node_description.final_attributes.target_container =  self.__final_target_container_name
+
         context.add_completion_future(
             context.asyncio_loop.run_in_executor(
                 None, self._load_in_sequence, load_node_requests, context
@@ -250,13 +253,17 @@ def get_composable_node_load_request(
     request.package_name = perform_substitutions(
         context, composable_node_description.package
     )
+    final_attrs = composable_node_description.final_attributes
+    final_attrs.package = request.package_name
     request.plugin_name = perform_substitutions(
         context, composable_node_description.node_plugin
     )
+    final_attrs.node_plugin = request.plugin_name
     if composable_node_description.node_name is not None:
         request.node_name = perform_substitutions(
             context, composable_node_description.node_name
         )
+        final_attrs.node_name = request.node_name
     expanded_ns = composable_node_description.node_namespace
     if expanded_ns is not None:
         expanded_ns = perform_substitutions(context, expanded_ns)
@@ -264,15 +271,26 @@ def get_composable_node_load_request(
     combined_ns = make_namespace_absolute(prefix_namespace(base_ns, expanded_ns))
     if combined_ns is not None:
         request.node_namespace = combined_ns
+        final_attrs.node_namespace = combined_ns
     # request.log_level = perform_substitutions(context, node_description.log_level)
     remappings = []
     global_remaps = context.launch_configurations.get('ros_remaps', None)
     if global_remaps:
-        remappings.extend([f'{src}:={dst}' for src, dst in global_remaps])
+        if final_attrs.remap_rules_global is None:
+            final_attrs.remap_rules_global = []
+        # Consume the single use generator
+        final_attrs.remap_rules_global.extend([(src, dst) for src, dst in global_remaps])
+        remappings.extend([f'{src}:={dst}' for src, dst in final_attrs.remap_rules_global])
     if composable_node_description.remappings:
+        if final_attrs.remap_rules is None:
+            final_attrs.remap_rules = []
+        # Consume the single use generator
+        final_attrs.remap_rules.extend(
+            [(perform_substitutions(context, src), perform_substitutions(context, dst)) for src, dst in
+             composable_node_description.remappings])
         remappings.extend([
-            f'{perform_substitutions(context, src)}:={perform_substitutions(context, dst)}'
-            for src, dst in composable_node_description.remappings
+            f'{src}:={dst}'
+            for src, dst in final_attrs.remap_rules
         ])
     if remappings:
         request.remap_rules = remappings
@@ -299,6 +317,23 @@ def get_composable_node_load_request(
                 )
             )
         ]
+        from launch_ros.descriptions import Parameter
+        evaluated_parameters = evaluate_parameters(context, parameters)
+        for params in evaluated_parameters:
+            if isinstance(params, Path):
+                if final_attrs.params_files is None:
+                    final_attrs.params_files = []
+                final_attrs.params_files.append(str(params))
+            elif isinstance(params, dict):
+                if final_attrs.params_dicts is None:
+                    final_attrs.params_dicts = []
+                final_attrs.params_dicts.append(params)
+            elif isinstance(params, Parameter):
+                if final_attrs.params_descs is None:
+                    final_attrs.params_descs = []
+                final_attrs.params_descs.append(params.evaluate(context))
+            else:
+                raise RuntimeError('invalid normalized parameters {}'.format(repr(params)))
 
     if composable_node_description.extra_arguments is not None:
         request.extra_arguments = [
